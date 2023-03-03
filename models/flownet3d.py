@@ -273,19 +273,19 @@ class FlowEmbedding(nn.Module):
             cnt = cnt.view(B, -1, 1).repeat(1, 1, self.nsample)
             idx = idx_knn[cnt > (self.nsample-1)]
         
-        pos2_grouped = pointutils.grouping_operation(pos2, idx) # [B, 3, N, S] [1,3,256,64]
-        pos_diff = pos2_grouped - pos1.view(B, -1, N, 1)    # [B, 3, N, S]
+        pos2_grouped = pointutils.grouping_operation(pos2, idx) # [B, 3, N, S] [1,3,256,64] 邻域点坐标，采样64个
+        pos_diff = pos2_grouped - pos1.view(B, -1, N, 1)    # [B, 3, N, S] ，相当于找了xyz2中蓝色的点到xyz1的店(中心点)的距离
         
         feat2_grouped = pointutils.grouping_operation(feature2, idx)    # [B, C, N, S] [1,128,256,64]
         if self.corr_func=='concat':
-            feat_diff = torch.cat([feat2_grouped, feature1.view(B, -1, N, 1).repeat(1, 1, 1, self.nsample)], dim = 1)
+            feat_diff = torch.cat([feat2_grouped, feature1.view(B, -1, N, 1).repeat(1, 1, 1, self.nsample)], dim = 1) # [1, 256, 256, 64]
         
-        feat1_new = torch.cat([pos_diff, feat_diff], dim = 1)  # [B, 2*C+3,N,S]
+        feat1_new = torch.cat([pos_diff, feat_diff], dim = 1)  # [B, 2*C+3,N,S] [1, 259, 256, 64]
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
             feat1_new = F.relu(bn(conv(feat1_new)))
 
-        feat1_new = torch.max(feat1_new, -1)[0]  # [B, mlp[-1], npoint]
+        feat1_new = torch.max(feat1_new, -1)[0]  # [B, mlp[-1], npoint] [1, 128, 256]
         return pos1, feat1_new
 
 class PointNetSetUpConv(nn.Module):
@@ -324,7 +324,7 @@ class PointNetSetUpConv(nn.Module):
             feat1_new: (batch_size, npoint2, mlp[-1] or mlp2[-1] or channel1+3)
             TODO: Add support for skip links. Study how delta(XYZ) plays a role in feature updating.
         """
-        pos1_t = pos1.permute(0, 2, 1).contiguous()
+        pos1_t = pos1.permute(0, 2, 1).contiguous() #[1, 64, 3]
         pos2_t = pos2.permute(0, 2, 1).contiguous()
         B,C,N = pos1.shape
         if self.knn:
@@ -332,13 +332,13 @@ class PointNetSetUpConv(nn.Module):
         else:
             idx, _ = query_ball_point(self.radius, self.nsample, pos2_t, pos1_t)
         
-        pos2_grouped = pointutils.grouping_operation(pos2, idx)
+        pos2_grouped = pointutils.grouping_operation(pos2, idx) # [1, 3, 64, 8]
         pos_diff = pos2_grouped - pos1.view(B, -1, N, 1)    # [B,3,N1,S]
 
         feat2_grouped = pointutils.grouping_operation(feature2, idx) #[1,512,64,8]
         feat_new = torch.cat([feat2_grouped, pos_diff], dim = 1)   # [B,C1+3,N1,S] [1,515,64,8]
         for conv in self.mlp1_convs:
-            feat_new = conv(feat_new)
+            feat_new = conv(feat_new) #[1, 515, 64, 8]
         # max pooling
         feat_new = feat_new.max(-1)[0]   # [B,mlp1[-1],N1] ,[1,515,64]
         # concatenate feature in early layer
@@ -371,7 +371,7 @@ class PointNetFeaturePropogation(nn.Module):
         Return:
             new_points: upsampled points data, [B, D', N]
         """
-        pos1_t = pos1.permute(0, 2, 1).contiguous()
+        pos1_t = pos1.permute(0, 2, 1).contiguous() # [1, 2048, 3]
         pos2_t = pos2.permute(0, 2, 1).contiguous()
         B, C, N = pos1.shape
         
@@ -381,11 +381,11 @@ class PointNetFeaturePropogation(nn.Module):
         dists,idx = pointutils.three_nn(pos1_t,pos2_t)
         dists[dists < 1e-10] = 1e-10
         weight = 1.0 / dists
-        weight = weight / torch.sum(weight, -1,keepdim = True)   # [B,N,3]
-        interpolated_feat = torch.sum(pointutils.grouping_operation(feature2, idx) * weight.view(B, 1, N, 3), dim = -1) # [B,C,N,3]
+        weight = weight / torch.sum(weight, -1,keepdim = True)   # [B,N,3][1, 2048, 3]
+        interpolated_feat = torch.sum(pointutils.grouping_operation(feature2, idx) * weight.view(B, 1, N, 3), dim = -1) # [B,C,N,3] [1, 256, 2048]
 
         if feature1 is not None:
-            feat_new = torch.cat([interpolated_feat, feature1], 1)
+            feat_new = torch.cat([interpolated_feat, feature1], 1) # [1, 259, 2048]
         else:
             feat_new = interpolated_feat
         
@@ -438,7 +438,7 @@ class FlowNet3D(nn.Module):
         l0_fnew1 = self.fp(pc1, l1_pc1, feature1, l1_fnew1) #[1,256,2048]
         
         x = F.relu(self.bn1(self.conv1(l0_fnew1))) #[1,128,2048]
-        sf = self.conv2(x) 
+        sf = self.conv2(x) # [1, 3, 2048]
         return sf
         
 if __name__ == '__main__':
