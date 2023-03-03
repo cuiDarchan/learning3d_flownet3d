@@ -104,13 +104,14 @@ class FlowData:
 class UserData:
 	def __init__(self, application, data_dict):
 		self.application = application
+		self.data_class = FlowData(data_dict)
 
-		if self.application == 'classification':
-			self.data_class = ClassificationData(data_dict)
-		elif self.application == 'registration':
-			self.data_class = RegistrationData(data_dict)
-		elif self.application == 'flow_estimation':
-			self.data_class = FlowData(data_dict)
+		# if self.application == 'classification':
+		# 	self.data_class = ClassificationData(data_dict)
+		# elif self.application == 'registration':
+		# 	self.data_class = RegistrationData(data_dict)
+		# elif self.application == 'flow_estimation':
+		# 	self.data_class = FlowData(data_dict)
 
 	def __len__(self):
 		return len(self.data_class)

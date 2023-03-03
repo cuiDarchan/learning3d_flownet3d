@@ -3,11 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from time import time
 import numpy as np
+from utils import pointnet2_utils as pointutils
 
-try:
-    from .. utils import pointnet2_utils as pointutils
-except:
-    print("Error in pointnet2_utils! Retry setup for pointnet2_utils.")
+# try:
+#     from .. utils import pointnet2_utils as pointutils
+# except:
+#     print("Error in pointnet2_utils! Retry setup for pointnet2_utils.")
 
 def timeit(tag, t):
     print("{}: {}s".format(tag, time() - t))
@@ -209,25 +210,25 @@ class PointNetSetAbstraction(nn.Module):
         """
         device = xyz.device
         B, C, N = xyz.shape
-        xyz_t = xyz.permute(0, 2, 1).contiguous()
+        xyz_t = xyz.permute(0, 2, 1).contiguous() #[1,4096,3]
         # if points is not None:
         #     points = points.permute(0, 2, 1).contiguous()
 
         # 选取邻域点
         if self.group_all == False:
-            fps_idx = pointutils.furthest_point_sample(xyz_t, self.npoint)  # [B, N]
-            new_xyz = pointutils.gather_operation(xyz, fps_idx)  # [B, C, N]
+            fps_idx = pointutils.furthest_point_sample(xyz_t, self.npoint)  # [B, N] [1, 1024]
+            new_xyz = pointutils.gather_operation(xyz, fps_idx)  # [B, C, N] , 分组后的重心, [1,3,1024]
         else:
             new_xyz = xyz
-        new_points = self.queryandgroup(xyz_t, new_xyz.transpose(2, 1).contiguous(), points) # [B, 3+C, N, S]
+        new_points = self.queryandgroup(xyz_t, new_xyz.transpose(2, 1).contiguous(), points) # [B, 3+C, N, S][1, 6, 1024, 16]
         
         # new_xyz: sampled points position data, [B, C, npoint]
         # new_points: sampled points data, [B, C+D, npoint, nsample]
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
-            new_points =  F.relu(bn(conv(new_points)))
+            new_points =  F.relu(bn(conv(new_points))) #[1, 64, 1024,16]
 
-        new_points = torch.max(new_points, -1)[0]
+        new_points = torch.max(new_points, -1)[0] #[1, 64, 1024]
         return new_xyz, new_points
 
 class FlowEmbedding(nn.Module):
@@ -258,9 +259,9 @@ class FlowEmbedding(nn.Module):
             xyz1: (batch_size, 3, npoint)
             feat1_new: (batch_size, mlp[-1], npoint)
         """
-        pos1_t = pos1.permute(0, 2, 1).contiguous()
+        pos1_t = pos1.permute(0, 2, 1).contiguous() #[1,256,3]
         pos2_t = pos2.permute(0, 2, 1).contiguous()
-        B, N, C = pos1_t.shape
+        B, N, C = pos1_t.shape  #[1,256,3]
         if self.knn:
             _, idx = pointutils.knn(self.nsample, pos1_t, pos2_t)
         else:
@@ -272,10 +273,10 @@ class FlowEmbedding(nn.Module):
             cnt = cnt.view(B, -1, 1).repeat(1, 1, self.nsample)
             idx = idx_knn[cnt > (self.nsample-1)]
         
-        pos2_grouped = pointutils.grouping_operation(pos2, idx) # [B, 3, N, S]
+        pos2_grouped = pointutils.grouping_operation(pos2, idx) # [B, 3, N, S] [1,3,256,64]
         pos_diff = pos2_grouped - pos1.view(B, -1, N, 1)    # [B, 3, N, S]
         
-        feat2_grouped = pointutils.grouping_operation(feature2, idx)    # [B, C, N, S]
+        feat2_grouped = pointutils.grouping_operation(feature2, idx)    # [B, C, N, S] [1,128,256,64]
         if self.corr_func=='concat':
             feat_diff = torch.cat([feat2_grouped, feature1.view(B, -1, N, 1).repeat(1, 1, 1, self.nsample)], dim = 1)
         
@@ -334,18 +335,18 @@ class PointNetSetUpConv(nn.Module):
         pos2_grouped = pointutils.grouping_operation(pos2, idx)
         pos_diff = pos2_grouped - pos1.view(B, -1, N, 1)    # [B,3,N1,S]
 
-        feat2_grouped = pointutils.grouping_operation(feature2, idx)
-        feat_new = torch.cat([feat2_grouped, pos_diff], dim = 1)   # [B,C1+3,N1,S]
+        feat2_grouped = pointutils.grouping_operation(feature2, idx) #[1,512,64,8]
+        feat_new = torch.cat([feat2_grouped, pos_diff], dim = 1)   # [B,C1+3,N1,S] [1,515,64,8]
         for conv in self.mlp1_convs:
             feat_new = conv(feat_new)
         # max pooling
-        feat_new = feat_new.max(-1)[0]   # [B,mlp1[-1],N1]
+        feat_new = feat_new.max(-1)[0]   # [B,mlp1[-1],N1] ,[1,515,64]
         # concatenate feature in early layer
         if feature1 is not None:
-            feat_new = torch.cat([feat_new, feature1], dim=1)
+            feat_new = torch.cat([feat_new, feature1], dim=1) #[1,771,64]
         # feat_new = feat_new.view(B,-1,N,1)
         for conv in self.mlp2_convs:
-            feat_new = conv(feat_new)
+            feat_new = conv(feat_new) #[1,256,64]
         
         return feat_new
 
@@ -415,24 +416,29 @@ class FlowNet3D(nn.Module):
         self.conv2=nn.Conv1d(128, 3, kernel_size=1, bias=True)
         
     def forward(self, pc1, pc2, feature1, feature2):
+        ## 1. point feature learning layer
         l1_pc1, l1_feature1 = self.sa1(pc1, feature1)
-        l2_pc1, l2_feature1 = self.sa2(l1_pc1, l1_feature1)
+        #print("l1_pc1.shape", l1_pc1.shape) # [1,3,1024] [1,64,1024]
+        #print("l1_feature1.shape", l1_feature1.shape)
+        l2_pc1, l2_feature1 = self.sa2(l1_pc1, l1_feature1) # [1,3,256] [1,128,256]
         
         l1_pc2, l1_feature2 = self.sa1(pc2, feature2)
-        l2_pc2, l2_feature2 = self.sa2(l1_pc2, l1_feature2)
+        l2_pc2, l2_feature2 = self.sa2(l1_pc2, l1_feature2) # [1,3,256] [1,128,256]
         
-        _, l2_feature1_new = self.fe_layer(l2_pc1, l2_pc2, l2_feature1, l2_feature2)
+        ## 2. point mixture layer
+        _, l2_feature1_new = self.fe_layer(l2_pc1, l2_pc2, l2_feature1, l2_feature2) # [8,128,256]
 
-        l3_pc1, l3_feature1 = self.sa3(l2_pc1, l2_feature1_new)
-        l4_pc1, l4_feature1 = self.sa4(l3_pc1, l3_feature1)
+        l3_pc1, l3_feature1 = self.sa3(l2_pc1, l2_feature1_new) # [1,3,64] [1,256,64]
+        l4_pc1, l4_feature1 = self.sa4(l3_pc1, l3_feature1) # [1,3,16] [1,512,16]
         
-        l3_fnew1 = self.su1(l3_pc1, l4_pc1, l3_feature1, l4_feature1)
-        l2_fnew1 = self.su2(l2_pc1, l3_pc1, torch.cat([l2_feature1, l2_feature1_new], dim=1), l3_fnew1)
-        l1_fnew1 = self.su3(l1_pc1, l2_pc1, l1_feature1, l2_fnew1)
-        l0_fnew1 = self.fp(pc1, l1_pc1, feature1, l1_fnew1)
+        ## 3. flow refinement
+        l3_fnew1 = self.su1(l3_pc1, l4_pc1, l3_feature1, l4_feature1) #[1,256,64]
+        l2_fnew1 = self.su2(l2_pc1, l3_pc1, torch.cat([l2_feature1, l2_feature1_new], dim=1), l3_fnew1) #[1,256,256]
+        l1_fnew1 = self.su3(l1_pc1, l2_pc1, l1_feature1, l2_fnew1) #[1,256,1024]
+        l0_fnew1 = self.fp(pc1, l1_pc1, feature1, l1_fnew1) #[1,256,2048]
         
-        x = F.relu(self.bn1(self.conv1(l0_fnew1)))
-        sf = self.conv2(x)
+        x = F.relu(self.bn1(self.conv1(l0_fnew1))) #[1,128,2048]
+        sf = self.conv2(x) 
         return sf
         
 if __name__ == '__main__':

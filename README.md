@@ -4,6 +4,17 @@
 
 # Learning3D: A Modern Library for Deep Learning on 3D Point Clouds Data.
 
+
+## FlowNet3D 添加test文件版本
+**参考**
+[1. 详细使用说明]()
+[2. 文章解读](https://blog.csdn.net/weixin_36354875/article/details/126096628?spm=1001.2014.3001.5502)
+[3. 工程复现及可能遇到问题](https://blog.csdn.net/weixin_36354875/article/details/124942702?spm=1001.2014.3001.5502)
+
+<br/>
+
+
+
 **[Documentation](https://github.com/vinits5/learning3d#documentation) | [Blog](https://medium.com/@vinitsarode5/learning3d-a-modern-library-for-deep-learning-on-3d-point-clouds-data-48adc1fd3e0?sk=0beb59651e5ce980243bcdfbf0859b7a) | [Demo](https://github.com/vinits5/learning3d/blob/master/examples/test_pointnet.py)**
 
 Learning3D is an open-source library that supports the development of deep learning algorithms that deal with 3D data. The Learning3D exposes a set of state of art deep neural networks in python. A modular code has been provided for further development. We welcome contributions from the open-source community.

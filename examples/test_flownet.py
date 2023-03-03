@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-
+import sys
+sys.path.append('/home/cui/workspace/deepLearning/learning3d/')
+print(sys.path)
 import open3d as o3d
 import os
 import gc
@@ -11,8 +13,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import MultiStepLR
-from learning3d.models import FlowNet3D
-from learning3d.data_utils import SceneflowDataset
+from models import FlowNet3D
+from data_utils import SceneflowDataset
 import numpy as np
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
@@ -80,9 +82,9 @@ def main():
     parser.add_argument('--dataset', type=str, default='SceneflowDataset',
                         choices=['SceneflowDataset'], metavar='N',
                         help='dataset to use')
-    parser.add_argument('--dataset_path', type=str, default='data_processed_maxcut_35_20k_2k_8192', metavar='N',
+    parser.add_argument('--dataset_path', type=str, default='data/', metavar='N',
                         help='dataset to use')
-    parser.add_argument('--pretrained', type=str, default='learning3d/pretrained/exp_flownet/models/model.best.t7', metavar='N',
+    parser.add_argument('--pretrained', type=str, default='pretrained/exp_flownet/models/model.best.t7', metavar='N',
                         help='Pretrained model path')
     parser.add_argument('--device', default='cuda:0', type=str,
                         metavar='DEVICE', help='use CUDA if available')
