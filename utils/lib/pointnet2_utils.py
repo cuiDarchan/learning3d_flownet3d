@@ -276,8 +276,8 @@ class QueryAndGroup(nn.Module):
         """
         idx = ball_query(self.radius, self.nsample, xyz, new_xyz)
         xyz_trans = xyz.transpose(1, 2).contiguous()
-        grouped_xyz = grouping_operation(xyz_trans, idx)  # (B, 3, npoint, nsample)
-        grouped_xyz -= new_xyz.transpose(1, 2).unsqueeze(-1)
+        grouped_xyz = grouping_operation(xyz_trans, idx)  # (B, 3, npoint, nsample) [1,3,1024,16]
+        grouped_xyz -= new_xyz.transpose(1, 2).unsqueeze(-1) # 归一化， 每一个点 -重心 [1,3,1024,16]
 
         if features is not None:
             grouped_features = grouping_operation(features, idx)
@@ -289,7 +289,7 @@ class QueryAndGroup(nn.Module):
             assert self.use_xyz, "Cannot have not features and not use xyz as a feature!"
             new_features = grouped_xyz
 
-        return new_features
+        return new_features # [1,6,1024,16]
 
 
 class GroupAll(nn.Module):
